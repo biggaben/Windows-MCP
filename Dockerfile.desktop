@@ -1,0 +1,104 @@
+# Enhanced Windows MCP Dockerfile for Desktop Interaction
+# Based on research: Windows Server Core with Desktop Experience for GUI support
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+# Set working directory
+WORKDIR /app
+
+# Install Windows Desktop Experience (GUI capabilities)
+# Note: This requires Windows container mode and proper licensing
+RUN powershell -Command \
+    "Install-WindowsFeature -Name Desktop-Experience -IncludeManagementTools"
+
+# Enable RDP for remote desktop access
+RUN powershell -Command \
+    "Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0; \
+    Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'; \
+    Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 1"
+
+# Create a user for RDP access
+RUN powershell -Command \
+    "New-LocalUser -Name 'mcpuser' -Password (ConvertTo-SecureString 'MCP@Windows2024!' -AsPlainText -Force) -FullName 'MCP User' -Description 'User for MCP desktop access'; \
+    Add-LocalGroupMember -Group 'Remote Desktop Users' -Member 'mcpuser'; \
+    Add-LocalGroupMember -Group 'Users' -Member 'mcpuser'"
+
+# Install Python 3.13 with GUI support
+RUN powershell -Command \
+    "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.13.0/python-3.13.0-amd64.exe' -OutFile 'python-installer.exe'; \
+    Start-Process -FilePath 'python-installer.exe' -ArgumentList '/quiet', 'InstallAllUsers=1', 'PrependPath=1', 'Include_tkinter=1' -Wait; \
+    Remove-Item 'python-installer.exe'"
+
+# Install Visual C++ Redistributable (required for some Python packages)
+RUN powershell -Command \
+    "Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile 'vc_redist.exe'; \
+    Start-Process -FilePath 'vc_redist.exe' -ArgumentList '/install', '/quiet', '/norestart' -Wait; \
+    Remove-Item 'vc_redist.exe'"
+
+# Install uv package manager
+RUN powershell -Command "python -m pip install --upgrade pip && python -m pip install uv"
+
+# Copy project files
+COPY . .
+
+# Install Python dependencies with Windows-specific optimizations
+RUN powershell -Command "uv sync --frozen"
+
+# Install additional Windows GUI dependencies
+RUN powershell -Command \
+    "uv pip install pywin32 pygetwindow pillow opencv-python-headless"
+
+# Set up environment variables for GUI applications
+ENV DISPLAY=:0
+ENV PYTHONPATH=/app
+ENV MCP_SERVER_NAME=windows-mcp-desktop
+ENV PYTHONUNBUFFERED=1
+
+# Create startup script for desktop mode
+RUN powershell -Command \
+    "echo '@echo off' | Out-File -FilePath startup.cmd -Encoding ascii; \
+    echo 'echo Starting Windows MCP Desktop Server...' | Out-File -FilePath startup.cmd -Encoding ascii -Append; \
+    echo 'uv run main.py' | Out-File -FilePath startup.cmd -Encoding ascii -Append"
+
+# Create RDP startup script
+RUN powershell -Command \
+    "echo '@echo off' | Out-File -FilePath start-rdp.cmd -Encoding ascii; \
+    echo 'net start TermService' | Out-File -FilePath start-rdp.cmd -Encoding ascii -Append; \
+    echo 'echo RDP Service started. Connect to container IP on port 3389' | Out-File -FilePath start-rdp.cmd -Encoding ascii -Append; \
+    echo 'echo Username: mcpuser' | Out-File -FilePath start-rdp.cmd -Encoding ascii -Append; \
+    echo 'echo Password: MCP@Windows2024!' | Out-File -FilePath start-rdp.cmd -Encoding ascii -Append"
+
+# Create health check script
+RUN powershell -Command \
+    "echo 'try {' | Out-File -FilePath healthcheck.ps1 -Encoding ascii; \
+    echo '    Get-Process python -ErrorAction Stop | Out-Null' | Out-File -FilePath healthcheck.ps1 -Encoding ascii -Append; \
+    echo '    exit 0' | Out-File -FilePath healthcheck.ps1 -Encoding ascii -Append; \
+    echo '} catch {' | Out-File -FilePath healthcheck.ps1 -Encoding ascii -Append; \
+    echo '    exit 1' | Out-File -FilePath healthcheck.ps1 -Encoding ascii -Append; \
+    echo '}' | Out-File -FilePath healthcheck.ps1 -Encoding ascii -Append"
+
+# Expose ports for MCP server and RDP
+EXPOSE 8000 3389
+
+# Set up health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD powershell -File healthcheck.ps1
+
+# Create entrypoint script for multi-service startup
+RUN powershell -Command \
+    "echo '@echo off' | Out-File -FilePath entrypoint.cmd -Encoding ascii; \
+    echo 'echo Starting Windows MCP Desktop Container...' | Out-File -FilePath entrypoint.cmd -Encoding ascii -Append; \
+    echo 'net start TermService' | Out-File -FilePath entrypoint.cmd -Encoding ascii -Append; \
+    echo 'echo RDP Service started on port 3389' | Out-File -FilePath entrypoint.cmd -Encoding ascii -Append; \
+    echo 'echo Username: mcpuser Password: MCP@Windows2024!' | Out-File -FilePath entrypoint.cmd -Encoding ascii -Append; \
+    echo 'echo Starting MCP Server...' | Out-File -FilePath entrypoint.cmd -Encoding ascii -Append; \
+    echo 'uv run main.py' | Out-File -FilePath entrypoint.cmd -Encoding ascii -Append"
+
+# Use multi-stage optimization for smaller image
+# Clean up unnecessary files
+RUN powershell -Command \
+    "Remove-Item -Path 'C:\Windows\Temp\*' -Recurse -Force -ErrorAction SilentlyContinue; \
+    Remove-Item -Path 'C:\Users\*\AppData\Local\Temp\*' -Recurse -Force -ErrorAction SilentlyContinue; \
+    Remove-Item -Path 'C:\Windows\Logs\*' -Recurse -Force -ErrorAction SilentlyContinue"
+
+# Run the enhanced MCP server with desktop capabilities
+CMD ["powershell", "-Command", "& .\\entrypoint.cmd"]

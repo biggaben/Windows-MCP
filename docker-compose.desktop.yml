@@ -1,0 +1,122 @@
+# Docker Compose for Windows MCP Desktop Container
+# Enhanced configuration for desktop interaction capabilities
+
+version: '3.8'
+
+services:
+  windows-mcp-desktop:
+    build:
+      context: .
+      dockerfile: Dockerfile.desktop
+    image: windows-mcp-desktop:latest
+    container_name: windows-mcp-desktop
+    
+    # Windows container configuration
+    platform: windows
+    isolation: hyperv  # Use Hyper-V isolation for better security
+    
+    # Network configuration
+    ports:
+      - "8000:8000"  # MCP server port
+      - "3389:3389"  # RDP port for desktop access
+    
+    # Environment variables
+    environment:
+      - MCP_SERVER_NAME=windows-mcp-desktop
+      - PYTHONUNBUFFERED=1
+      - DISPLAY=:0
+      - MCP_LOG_LEVEL=INFO
+      - WINDOWS_DESKTOP_MODE=true
+      - RDP_ENABLED=true
+      - RDP_USERNAME=mcpuser
+      - RDP_PASSWORD=MCP@Windows2024!
+    
+    # Volume mounts for persistent data
+    volumes:
+      - type: bind
+        source: ./data
+        target: C:\app\data
+      - type: bind
+        source: ./logs
+        target: C:\app\logs
+      - type: bind
+        source: ./screenshots
+        target: C:\app\screenshots
+      - type: bind
+        source: ./sessions
+        target: C:\app\sessions
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "powershell", "-Command", "Test-NetConnection -ComputerName localhost -Port 8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Labels for organization
+    labels:
+      - "com.mcp.service=windows-desktop"
+      - "com.mcp.version=1.0"
+      - "com.mcp.description=Windows MCP Desktop Interaction Server"
+
+  # Optional: Redis for session management
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # Optional: PostgreSQL for persistent data
+  postgres:
+    image: postgres:15-alpine
+    container_name: mcp-postgres
+    environment:
+      POSTGRES_DB: mcp_desktop
+      POSTGRES_USER: mcp_user
+      POSTGRES_PASSWORD: mcp_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
