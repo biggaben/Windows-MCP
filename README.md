@@ -64,6 +64,25 @@
 - UV (Package Manager) from Astra, install with `pip install uv`
 - DXT (Desktop Extension) from Antropic, install with `npm install -g @anthropic-ai/dxt`
 
+### 🐳 Docker Installation (Recommended)
+
+For containerized deployment, use Docker:
+
+```bash
+# Quick start with Docker Compose
+docker-compose up --build
+
+# Or using build scripts
+docker-build.bat    # Windows
+./docker-build.sh   # Unix/Linux/macOS
+
+# Manual Docker build
+docker build -t windows-mcp .
+docker run -d --name windows-mcp-server --platform windows -p 8000:8000 windows-mcp
+```
+
+For detailed Docker setup instructions, see [DOCKER.md](DOCKER.md).
+
 ## 🏁 Getting Started
 
 ### Gemini CLI

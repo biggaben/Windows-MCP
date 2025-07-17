@@ -1,0 +1,42 @@
+# Docker Compose for Windows-MCP
+version: '3.8'
+
+services:
+  windows-mcp:
+    build: .
+    container_name: windows-mcp-server
+    # Note: Windows containers require specific configuration
+    platform: windows
+    environment:
+      - PYTHONPATH=/app
+      - MCP_SERVER_NAME=windows-mcp
+      - DISPLAY=host.docker.internal:0  # For GUI access if needed
+    volumes:
+      # Mount host directories if needed for file operations
+      - type: bind
+        source: ./data
+        target: /app/data
+    ports:
+      - "8000:8000"
+    # Windows containers need specific isolation mode
+    isolation: process
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+    # Restart policy
+    restart: unless-stopped
+    # Health check
+    healthcheck:
+      test: ["CMD", "powershell", "-Command", "Test-NetConnection -ComputerName localhost -Port 8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Optional: Add a volume for persistent data
+volumes:
+  windows-mcp-data:
+    driver: local

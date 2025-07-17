@@ -1,0 +1,44 @@
+# Linux-compatible Dockerfile for Windows-MCP development/testing
+# Note: This will have limited Windows desktop functionality but can run the MCP server
+FROM python:3.13-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV MCP_SERVER_NAME=windows-mcp
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies (Linux equivalents where possible)
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN pip install --no-cache-dir uv
+
+# Copy dependency files first for better caching
+COPY pyproject.toml uv.lock ./
+
+# Install Python dependencies (skip Windows-specific ones that might fail)
+RUN uv sync --no-dev || uv install fastmcp fuzzywuzzy markdownify pillow requests
+
+# Copy source code
+COPY src/ ./src/
+COPY main_linux.py ./main.py
+
+# Create data directory
+RUN mkdir -p data
+
+# Expose port for MCP server
+EXPOSE 8000
+
+# Add a simple health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
+CMD ["uv", "run", "main.py"]

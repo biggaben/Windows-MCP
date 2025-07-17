@@ -1,0 +1,36 @@
+# Alternative Dockerfile using Python base image (recommended)
+FROM python:3.13-windowsservercore-ltsc2022
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV MCP_SERVER_NAME=windows-mcp
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies and uv
+RUN pip install --no-cache-dir uv
+
+# Copy dependency files first for better caching
+COPY pyproject.toml uv.lock ./
+
+# Install Python dependencies
+RUN uv sync --no-dev
+
+# Copy source code
+COPY src/ ./src/
+COPY main.py ./
+
+# Create data directory
+RUN mkdir data
+
+# Expose port for MCP server
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD powershell -Command "try { Invoke-WebRequest -Uri 'http://localhost:8000/health' -UseBasicParsing -TimeoutSec 5 } catch { exit 1 }"
+
+# Run the application
+CMD ["uv", "run", "main.py"]
